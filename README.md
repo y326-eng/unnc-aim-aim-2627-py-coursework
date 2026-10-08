@@ -53,10 +53,9 @@ python main.py
 - **写代码**：全部作业在 `src/main/__init__.py`，按题面各题规范补全每个标有 TODO 的函数；注释里标注了对应的题面主题，推荐顺序 Q1 → Q6。
 - **跑测试**：`python -m pytest` —— 可见测试是规格书的一部分，未实现的函数自动 skip，实现一个、对应测试亮一个。本地全绿 ≠ 满分（见题面）。
 - **看演示**：`python main.py`（等价于 `PYTHONPATH=src python -m main`），随实现进度逐段点亮，不进测试。
-- **Q6 自测**：`python tools/run_seeds.py --q6`（200 张固定地图统计），单 seed 渲染 `python tools/run_seeds.py --q6 --seed <N> --render`，Bonus 模式 `python tools/run_seeds.py --bonus`。
+- **Q6 自测**：``python tools/run_seeds.py --q6（200 张固定地图统计），单 seed 渲染 `python tools/run_seeds.py --q6 --seed <N> --render`，Bonus 模式 `python tools/run_seeds.py --bonus`。
 
-## 5. 仓库结构（哪些能改）
-
+## 5. 仓库结构（哪些能改）git push origin main
 | 路径 | 说明 | 能否修改 |
 |---|---|---|
 | `src/main/__init__.py` | 你的全部作业（TODO 所在） | ✅ |
@@ -67,4 +66,34 @@ python main.py
 | `src/tests/`、`tools/`、`.github/`、`conftest.py`、`pytest.ini`、`main.py` | 测试与基础设施 | ❌ 勿改 |
 
 CI 只允许修改 `src/main/**`、`README.md` 与 `.agent-sessions/**`（AI 会话归档）——其余文件改了直接红；autopep8 `--diff` 非空即败。提交方式（push、问卷、commit 粒度）见题面"提交与验收"一节。
+
+## 6. Q7 修复记录：逐条定位与修复
+
+下面按模块中埋的缺陷逐条说明“错在哪、怎么定位到的”。每一条都对应到 `src/main/legacy_patrol.py` 的契约，并都通过可见测试/边界检查确认。
+
+1. `total_route_meters` 把厘米当成米返回。
+   - 错误：函数在 `segment_length_cm` 的基础上直接累加厘米值，却把结果原样返回，导致 `(0,0)->(3,0)->(3,4)` 这种路径会返回 `700` 而不是 `7`。
+   - 定位：先看 docstring 明确单位是“米”，再对照 `segment_length_cm` 实际返回“厘米”，最终用 `7` 这个样例验证出单位不一致。
+
+2. `calibrate` 在没有正样本时会触发 `TypeError`。
+   - 错误：代码用 `first_positive(samples)` 的返回值直接做减法，没有处理 `None` 的情况；`[]` 或 `[-1, -2]` 会因此崩掉。
+   - 定位：按 docstring 逐个确认“空样本/无正样本返回 0”，然后直接调用这两个边界样例复现异常。
+
+3. `summarize_events` 对 `max_id` 判断写成了严格小于。
+   - 错误：`if e["id"] < max_id` 会漏掉 `id == max_id` 的事件，导致统计数少一。
+   - 定位：可见测试里给了 `max_id=2` 且 `id=2` 的样本，结果与预期不符，直接锁定为边界条件错误。
+
+4. `log` 使用了可变默认参数。
+   - 错误：`history=[]` 在函数定义时就绑定了同一个列表，后续调用会串数据。
+   - 定位：连续调用 `log("a")` 和 `log("b")`，第二次返回中仍然保留首个历史，符合“默认历史相互污染”的症状；用 `None` 作为默认值修正。
+
+5. `run_legacy_sim` 的轮次计数器没有递增。
+   - 错误：循环内没有 `round_ += 1`，导致状态一直停在第 0 轮，结果永远只记录第一轮。
+   - 定位：契约要求“依次执行第 0 .. rounds-1 轮”，而验收脚本给出的 `rounds=10, stamina=100` 结果只跑了 1 轮，直接暴露该问题。
+
+6. `run_legacy_sim` 的停止条件反了。
+   - 错误：代码在 `stamina > 20` 时中断，应该是 `stamina <= 20` 时立即终止；这会让本该停下来的状态继续跑，甚至在阈值边界上发生错误。
+   - 定位：从 docstring “任一轮结束后体力 <= 20 时立即终止”入手，直接用 `run_legacy_sim(2, 28)` 这个样例复现，发现返回值和契约不一致。
+
+此外，我还顺手补了一条防御性修正：`parse_event` 现在会在非字符串输入上安全返回 `None`，保证“脏行不抛异常”这个契约成立。
 
