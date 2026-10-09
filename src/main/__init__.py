@@ -47,7 +47,7 @@ def status_report(name, robot_type, hp, max_hp, battery):
     hp_pct = hp_ratio(hp, max_hp)
     bat_pct = max(0, min(100, int(battery)))
 
-    if bat_pct >= 50:
+    if bat_pct >= 60:
         level = "OK"
     elif bat_pct >= 20:
         level = "WARNING"
